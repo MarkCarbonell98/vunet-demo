@@ -14,5 +14,6 @@ python main.py  --mode "transfer" \
                 --ckpt_freq 1000 \
                 --test_freq 1000 \
                 --drop_prob 0.1 \
-                --no-mask
+                --mask
+                # --no-mask
 

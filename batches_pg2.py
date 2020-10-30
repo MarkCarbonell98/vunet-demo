@@ -1,36 +1,13 @@
-import PIL.Image
-from multiprocessing.pool import ThreadPool
+from PIL import Image, ImageDraw, ImageFont
 import numpy as np
-import pickle
 import os
 import cv2
 import math
 
-
-class BufferedWrapper(object):
-    """Fetch next batch asynchronuously to avoid bottleneck during GPU
-    training."""
-    def __init__(self, gen):
-        self.gen = gen
-        self.n = gen.n
-        self.pool = ThreadPool(1)
-        self._async_next()
-
-
-    def _async_next(self):
-        self.buffer_ = self.pool.apply_async(next, (self.gen,))
-
-
-    def __next__(self):
-        result = self.buffer_.get()
-        self._async_next()
-        return result
-
-
 def load_img(path, target_size):
     """Load image. target_size is specified as (height, width, channels)
     where channels == 1 means grayscale. uint8 image returned."""
-    img = PIL.Image.open(path)
+    img = Image.open(path)
     grayscale = target_size[2] == 1
     if grayscale:
         if img.mode != 'L':
@@ -40,7 +17,7 @@ def load_img(path, target_size):
             img = img.convert('RGB')
     wh_tuple = (target_size[1], target_size[0])
     if img.size != wh_tuple:
-        img = img.resize(wh_tuple, resample = PIL.Image.BILINEAR)
+        img = img.resize(wh_tuple, resample = Image.BILINEAR)
 
     x = np.asarray(img, dtype = "uint8")
     if len(x.shape) == 2:
@@ -52,7 +29,7 @@ def load_img(path, target_size):
 def save_image(X, name):
     """Save image as png."""
     fname = os.path.join(out_dir, name + ".png")
-    PIL.Image.fromarray(X).save(fname)
+    Image.fromarray(X).save(fname)
 
 
 def preprocess(x):
@@ -74,7 +51,6 @@ def postprocess(x):
     x = np.clip(255 * x, 0, 255)
     x = np.cast[np.uint8](x)
     return x
-
 
 def tile(X, rows, cols):
     """Tile images for display."""
@@ -101,7 +77,7 @@ def plot_batch(X, out_path):
     rows = cols = math.ceil(rc)
     canvas = tile(X, rows, cols)
     canvas = np.squeeze(canvas)
-    PIL.Image.fromarray(canvas).save(out_path)
+    Image.fromarray(canvas).save(out_path)
 
 
 def make_joint_img(img_shape, jo, joints):
@@ -429,174 +405,4 @@ def make_mask_img(img_shape, jo, joints):
     return mask
 
 
-class IndexFlow(object):
-    """Batches from index file."""
 
-    def __init__(
-            self,
-            shape,
-            index_path,
-            train,
-            mask = True,
-            fill_batches = True,
-            shuffle = True,
-            return_keys = ["imgs", "joints"]):
-        self.shape = shape
-        self.batch_size = self.shape[0]
-        self.img_shape = self.shape[1:]
-        with open(index_path, "rb") as f:
-            self.index = pickle.load(f)
-        self.basepath = os.path.dirname(index_path)
-        self.train = train
-        self.mask = mask
-        self.fill_batches = fill_batches
-        self.shuffle_ = shuffle
-        self.return_keys = return_keys
-
-        self.jo = self.index["joint_order"]
-        # rescale joint coordinates to image shape
-        h,w = self.img_shape[:2]
-        wh = np.array([[[w,h]]])
-        self.index["joints"] = self.index["joints"] * wh
-
-        self.indices = np.array(
-                [i for i in range(len(self.index["train"]))
-                    if self._filter(i)])
-
-        self.n = self.indices.shape[0]
-        self.shuffle()
-
-
-    def _filter(self, i):
-        good = True
-        good = good and (self.index["train"][i] == self.train)
-        joints = self.index["joints"][i]
-        required_joints = ["lshoulder","rshoulder","lhip","rhip"]
-        joint_indices = [self.jo.index(b) for b in required_joints]
-        joints = np.float32(joints[joint_indices])
-        good = good and valid_joints(joints)
-        return good
-
-
-    def __next__(self):
-        batch = dict()
-
-        # get indices for batch
-        batch_start, batch_end = self.batch_start, self.batch_start + self.batch_size
-        batch_indices = self.indices[batch_start:batch_end]
-        if self.fill_batches and batch_indices.shape[0] != self.batch_size:
-            n_missing = self.batch_size - batch_indices.shape[0]
-            batch_indices = np.concatenate([batch_indices, self.indices[:n_missing]], axis = 0)
-            assert(batch_indices.shape[0] == self.batch_size)
-        batch_indices = np.array(batch_indices)
-        batch["indices"] = batch_indices
-
-        # prepare next batch
-        if batch_end >= self.n:
-            self.shuffle()
-        else:
-            self.batch_start = batch_end
-
-        # prepare batch data
-        # load images
-        batch["imgs"] = list()
-        for i in batch_indices:
-            fname = self.index["imgs"][i]
-            # traintest = "train" if self.train else "test"
-            # path = os.path.join(self.basepath, "..", "original", "filted_up_{}".format(traintest), fname)
-            path = os.path.join(self.basepath, fname)
-            batch["imgs"].append(load_img(path, target_size = self.img_shape))
-        batch["imgs"] = np.stack(batch["imgs"])
-        batch["imgs"] = preprocess(batch["imgs"])
-
-        # load joint coordinates
-        batch["joints_coordinates"] = [self.index["joints"][i] for i in batch_indices]
-
-        # generate stickmen images from coordinates
-        batch["joints"] = list()
-        for joints in batch["joints_coordinates"]:
-            img = make_joint_img(self.img_shape, self.jo, joints)
-            batch["joints"].append(img)
-        batch["joints"] = np.stack(batch["joints"])
-        batch["joints"] = preprocess(batch["joints"])
-
-        if False and self.mask:
-            if "masks" in self.index:
-                batch_masks = list()
-                for i in batch_indices:
-                    fname = self.index["masks"][i]
-                    path = os.path.join(self.basepath, fname)
-                    batch_masks.append(load_img(path, target_size = self.img_shape))
-            else:
-                # generate mask based on joint coordinates
-                batch_masks = list()
-                for joints in batch["joints_coordinates"]:
-                    mask = make_mask_img(self.img_shape, self.jo, joints)
-                    batch_masks.append(mask)
-            batch["masks"] = np.stack(batch_masks)
-            batch["masks"] = preprocess_mask(batch["masks"])
-            # apply mask to images
-            batch["imgs"] = batch["imgs"] * batch["masks"]
-
-
-        imgs, joints = normalize(batch["imgs"], batch["joints_coordinates"], batch["joints"], self.jo)
-        batch["norm_imgs"] = imgs
-        batch["norm_joints"] = joints
-
-        batch_list = [batch[k] for k in self.return_keys]
-        return batch_list
-
-
-    def shuffle(self):
-        self.batch_start = 0
-        if self.shuffle_:
-            np.random.shuffle(self.indices)
-
-
-def get_batches(
-        shape,
-        index_path,
-        train,
-        mask,
-        fill_batches = True,
-        shuffle = True,
-        return_keys = ["imgs", "joints", "norm_imgs", "norm_joints"]):
-    """Buffered IndexFlow."""
-    flow = IndexFlow(shape, index_path, train, mask, fill_batches, shuffle, return_keys)
-    return BufferedWrapper(flow)
-
-
-if __name__ == "__main__":
-    import sys
-    if not len(sys.argv) == 2:
-        print("Useage: {} <path to index.p>".format(sys.argv[0]))
-        exit(1)
-
-    batches = get_batches(
-            shape = (16, 128, 128, 3),
-            index_path = sys.argv[1],
-            train = True,
-            mask = False,
-            shuffle = True)
-    X, C = next(batches)
-    plot_batch(X, "unmasked.png")
-    plot_batch(C, "joints.png")
-
-    """
-    batches = get_batches(
-            shape = (16, 128, 128, 3),
-            index_path = sys.argv[1],
-            train = True,
-            mask = True)
-    X, C = next(batches)
-    plot_batch(X, "masked.png")
-
-    batches = get_batches(
-            shape = (16, 32, 32, 3),
-            index_path = sys.argv[1],
-            train = True,
-            mask = True)
-    X, C = next(batches)
-    plot_batch(X, "masked32.png")
-    plot_batch(C, "joints32.png")
-    """

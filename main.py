@@ -4,13 +4,15 @@ import math
 import pickle
 import numpy as np
 import PIL
+import cv2
 import nn
 import models
 import deeploss
 
 from tqdm import trange
 from model import Model
-from batches_pg2 import get_batches, plot_batch
+from batches_pg2 import plot_batch
+from get_batches import get_batches
 from utils import init_logging, process_batches
 from parser import parse_arguments
 from config import default_log_dir, config, session
@@ -43,6 +45,7 @@ if __name__ == "__main__":
         else:
             model.init_graph(next(init_batches))
         model.fit(batches, valid_batches)
+
     elif opt.mode == "test":
         if not opt.checkpoint:
             raise Exception("Testing requires --checkpoint")
@@ -93,14 +96,15 @@ if __name__ == "__main__":
         if not opt.checkpoint:
             opt.checkpoint = "log/2017-10-25T16:31:50/checkpoints/model.ckpt-100000"
         batch_size = opt.batch_size
-        img_shape = 2*[opt.spatial_size] + [3]
-        data_shape = [batch_size] + img_shape
+        img_shape = 2*[opt.spatial_size] + [3] # outputs [256, 256, 3]
+        data_shape = [batch_size] + img_shape # outputs [8, 256, 256, 3]
         valid_batches = get_batches(data_shape, opt.data_index,
                 mask = opt.mask, train = False)
         model = Model(opt, out_dir, logger)
         model.restore_graph(opt.checkpoint)
 
         ids = ["00038", "00281", "01166", "x", "06909", "y", "07586", "07607", "z", "09874"]
+        # for step in trange(10):
         for step in trange(10):
             X_batch, C_batch, XN_batch, CN_batch = next(valid_batches)
             bs = X_batch.shape[0]

@@ -6,7 +6,8 @@ import models
 import deeploss
 
 from tqdm import tqdm, trange
-from batches_pg2 import get_batches, plot_batch, postprocess
+from batches_pg2 import plot_batch, postprocess
+from get_batches import get_batches
 from config import config, session, N_BOXES
 
 class Model(object):
@@ -412,3 +413,4 @@ class Model(object):
                     self.xn: x_encode,
                     self.cn: c_encode,
                     self.c_generator: c_decode})
+
