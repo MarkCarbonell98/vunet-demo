@@ -52,3 +52,5 @@ def process_batches(model, index_dir, batches, batch_size, index):
             PIL.Image.fromarray(R_batch[batch_i,...]).save(reconstr_path)
             PIL.Image.fromarray(S_batch[batch_i,...]).save(sample_path)
 
+def download_from_drive(id, out_dir):
+  gdown.download("https://drive.google.com/uc?id={id}".format(id=id), out_dir, quiet=False)

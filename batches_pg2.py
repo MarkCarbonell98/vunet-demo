@@ -77,8 +77,8 @@ def plot_batch(X, out_path):
     rows = cols = math.ceil(rc)
     canvas = tile(X, rows, cols)
     canvas = np.squeeze(canvas)
-    Image.fromarray(canvas).save(out_path)
-
+    canvas = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+    cv2.imwrite(out_path, canvas)
 
 def make_joint_img(img_shape, jo, joints):
     # three channels: left, right, center
