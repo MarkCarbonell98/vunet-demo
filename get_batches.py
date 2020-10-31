@@ -28,7 +28,7 @@ if __name__ == "__main__":
             train = True,
             mask = False,
             shuffle = True)
-    X, C = next(batches)
+    X, C, _, _ = next(batches)
     plot_batch(X, "unmasked.png")
     plot_batch(C, "joints.png")
 
