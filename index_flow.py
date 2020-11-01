@@ -129,7 +129,6 @@ class IndexFlow(object):
         batch_list = [batch[k] for k in self.return_keys]
         return batch_list
 
-
     def shuffle(self):
         self.batch_start = 0
         if self.shuffle_:
